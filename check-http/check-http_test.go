@@ -11,7 +11,8 @@ import (
 
 func TestHandleResponse(t *testing.T) {
 	type fields struct {
-		redirectOK bool
+		redirectOK   bool
+		responseCode int
 	}
 	tests := []struct {
 		name       string
@@ -35,6 +36,38 @@ func TestHandleResponse(t *testing.T) {
 			wantStatus: plugin.Warning,
 		},
 		{
+			name: "Expected 200 OK",
+			fields: fields{
+				responseCode: http.StatusOK,
+			},
+			resp:       &http.Response{StatusCode: http.StatusOK},
+			wantStatus: plugin.OK,
+		},
+		{
+			name: "Unexpected 200 OK",
+			fields: fields{
+				responseCode: http.StatusMovedPermanently,
+			},
+			resp:       &http.Response{StatusCode: http.StatusOK},
+			wantStatus: plugin.Critical,
+		},
+		{
+			name: "Expected 301 Moved Permanently",
+			fields: fields{
+				responseCode: http.StatusMovedPermanently,
+			},
+			resp:       &http.Response{StatusCode: http.StatusMovedPermanently},
+			wantStatus: plugin.OK,
+		},
+		{
+			name: "Unexpected 301 Moved Permanently",
+			fields: fields{
+				responseCode: http.StatusBadRequest,
+			},
+			resp:       &http.Response{StatusCode: http.StatusMovedPermanently},
+			wantStatus: plugin.Critical,
+		},
+		{
 			name: "Redirection allowed",
 			fields: fields{
 				redirectOK: true,
@@ -46,7 +79,8 @@ func TestHandleResponse(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := &CheckHTTP{
-				redirectOK: tt.fields.redirectOK,
+				redirectOK:   tt.fields.redirectOK,
+				responseCode: tt.fields.responseCode,
 			}
 			if exit := c.handleResponse(tt.resp); exit != nil {
 				if exit, ok := exit.(*plugin.Exit); ok {

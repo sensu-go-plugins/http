@@ -13,9 +13,10 @@ import (
 type CheckHTTP struct {
 	cmd plugin.Command
 
-	redirectOK bool
-	timeout    int
-	url        string
+	redirectOK   bool
+	responseCode int
+	timeout      int
+	url          string
 }
 
 func main() {
@@ -26,8 +27,9 @@ func main() {
 
 	// Instantiate the configuration flags
 	c.cmd.Flags().BoolVarP(&c.redirectOK, "redirect-ok", "r", false, "Accept redirection")
-	c.cmd.Flags().StringVarP(&c.url, "url", "u", "", "URL to connect to")
+	c.cmd.Flags().IntVar(&c.responseCode, "response-code", http.StatusOK, "Expected HTTP status code")
 	c.cmd.Flags().IntVarP(&c.timeout, "timeout", "t", 15, "Time limit, in seconds, for the request")
+	c.cmd.Flags().StringVarP(&c.url, "url", "u", "", "URL to connect to")
 
 	// Execute the check
 	plugin.Execute(c)
@@ -56,6 +58,17 @@ func (c *CheckHTTP) Run() error {
 
 func (c *CheckHTTP) handleResponse(resp *http.Response) error {
 	status := statusLine(resp.StatusCode)
+
+	// Verify if we are expecting something else than a 200 OK status
+	if c.responseCode != http.StatusOK && c.responseCode != 0 {
+		if c.responseCode == resp.StatusCode {
+			return &plugin.Exit{Msg: status, Status: plugin.OK}
+		}
+		return &plugin.Exit{
+			Msg:    fmt.Sprintf("expected %s, got %s", statusLine(c.responseCode), statusLine(resp.StatusCode)),
+			Status: plugin.Critical,
+		}
+	}
 
 	if resp.StatusCode >= http.StatusOK && resp.StatusCode <= http.StatusIMUsed {
 		// ~200
