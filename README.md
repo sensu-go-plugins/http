@@ -7,7 +7,7 @@ CheckHTTP provides HTTP monitoring capabilities
 - [x] Custom timeout
 - [x] Allow or deny URL redirection
 - [x] Custom HTTP response code (e.g. 301 Moved Permanently)
-- [ ] Pattern check (e.g. 200 OK response & string in response body)
+- [x] Pattern check in HTTP response body
 - [ ] Response body size comparison
 - [ ] HTTP Proxy server
 - [ ] Custom HTTP headers

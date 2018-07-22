@@ -2,8 +2,10 @@ package main
 
 import (
 	"fmt"
+	"io/ioutil"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/sensu-go-plugins/gunsen/plugin"
@@ -13,10 +15,12 @@ import (
 type CheckHTTP struct {
 	cmd plugin.Command
 
-	redirectOK   bool
-	responseCode int
-	timeout      int
-	url          string
+	missingPattern string
+	pattern        string
+	redirectOK     bool
+	responseCode   int
+	timeout        int
+	url            string
 }
 
 func main() {
@@ -26,6 +30,8 @@ func main() {
 	}
 
 	// Instantiate the configuration flags
+	c.cmd.Flags().StringVarP(&c.missingPattern, "negquery", "n", "", "Query for pattern that must be absent in response body")
+	c.cmd.Flags().StringVarP(&c.pattern, "query", "q", "", "Query for pattern that must exist in response body")
 	c.cmd.Flags().BoolVarP(&c.redirectOK, "redirect-ok", "r", false, "Accept redirection")
 	c.cmd.Flags().IntVar(&c.responseCode, "response-code", http.StatusOK, "Expected HTTP status code")
 	c.cmd.Flags().IntVarP(&c.timeout, "timeout", "t", 15, "Time limit, in seconds, for the request")
@@ -47,6 +53,14 @@ func (c *CheckHTTP) Run() error {
 		return &plugin.Exit{Msg: "no URL specified", Status: plugin.Unknown}
 	}
 
+	if c.pattern != "" && c.missingPattern != "" {
+		return &plugin.Exit{
+			Msg:    "--query and --negquery can not be used simultaneously",
+			Status: plugin.Unknown,
+		}
+	}
+
+	// Perform the request
 	client := c.prepareClient()
 	resp, err := c.initiateRequest(client)
 	if err != nil {
@@ -57,36 +71,39 @@ func (c *CheckHTTP) Run() error {
 }
 
 func (c *CheckHTTP) handleResponse(resp *http.Response) error {
-	status := statusLine(resp.StatusCode)
+	responseCode := statusLine(resp.StatusCode)
 
 	// Verify if we are expecting something else than a 200 OK status
 	if c.responseCode != http.StatusOK && c.responseCode != 0 {
 		if c.responseCode == resp.StatusCode {
-			return &plugin.Exit{Msg: status, Status: plugin.OK}
+			// The response code corresponds to the expected one, now verify the
+			// response body
+			return c.verifyBody(resp)
 		}
 		return &plugin.Exit{
-			Msg:    fmt.Sprintf("expected HTTP status %s, got %s", statusLine(c.responseCode), statusLine(resp.StatusCode)),
+			Msg:    fmt.Sprintf("expected HTTP status %s, got %s", statusLine(c.responseCode), responseCode),
 			Status: plugin.Critical,
 		}
 	}
 
 	if resp.StatusCode >= http.StatusOK && resp.StatusCode <= http.StatusIMUsed {
-		// ~200
-		return &plugin.Exit{Msg: status, Status: plugin.OK}
+		// Verify the response body
+		return c.verifyBody(resp)
 	} else if resp.StatusCode >= http.StatusMultipleChoices && resp.StatusCode <= http.StatusPermanentRedirect {
 		// ~300
 		if c.redirectOK {
-			return &plugin.Exit{Msg: status, Status: plugin.OK}
+			// The redirection was expected, now verify the response body
+			return c.verifyBody(resp)
 		}
 
 		// A redirection was not expected
 		return &plugin.Exit{
-			Msg:    status + ": unexpected redirection",
+			Msg:    responseCode + ": unexpected redirection",
 			Status: plugin.Warning,
 		}
 	}
 
-	return &plugin.Exit{Msg: status, Status: plugin.Critical}
+	return &plugin.Exit{Msg: responseCode, Status: plugin.Critical}
 }
 
 func (c *CheckHTTP) initiateRequest(client *http.Client) (*http.Response, error) {
@@ -120,6 +137,53 @@ func (c *CheckHTTP) prepareClient() *http.Client {
 	}
 
 	return client
+}
+
+func (c *CheckHTTP) verifyBody(resp *http.Response) error {
+	responseCode := statusLine(resp.StatusCode)
+
+	// Determine if we have a pattern that must be present or absent
+	pattern := c.pattern
+	if c.missingPattern != "" {
+		pattern = c.missingPattern
+	}
+
+	if pattern != "" {
+		// Get the response body
+		defer resp.Body.Close()
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return &plugin.Exit{Msg: err.Error(), Status: plugin.Critical}
+		}
+
+		contentLength := len(body)
+
+		if strings.Contains(string(body), pattern) {
+			// Determine the status based on whether it must be absent or present
+			status := plugin.OK
+			if c.missingPattern != "" {
+				status = plugin.Critical
+			}
+
+			return &plugin.Exit{
+				Msg:    fmt.Sprintf("%s found /%s/ in %d bytes", responseCode, pattern, contentLength),
+				Status: status,
+			}
+		}
+
+		// Determine the status based on whether it must be absent or present
+		status := plugin.Critical
+		if c.missingPattern != "" {
+			status = plugin.OK
+		}
+
+		return &plugin.Exit{
+			Msg:    fmt.Sprintf("did not found /%s/ in %d bytes", pattern, contentLength),
+			Status: status,
+		}
+	}
+
+	return &plugin.Exit{Msg: responseCode, Status: plugin.OK}
 }
 
 // statusLine returns a string that contains the status code and status text

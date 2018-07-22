@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -8,6 +10,22 @@ import (
 
 	"github.com/sensu-go-plugins/gunsen/plugin"
 )
+
+func verifyExitCode(t *testing.T, got error, want int) {
+	t.Helper()
+
+	if got != nil {
+		if exit, ok := got.(*plugin.Exit); ok {
+			if exit.Status != want {
+				t.Errorf("exit status = %v, want %v", exit.Status, want)
+			}
+		} else {
+			t.Error("exit could not be asserted")
+		}
+	} else {
+		t.Error("exit was nil")
+	}
+}
 
 func TestHandleResponse(t *testing.T) {
 	type fields struct {
@@ -82,17 +100,8 @@ func TestHandleResponse(t *testing.T) {
 				redirectOK:   tt.fields.redirectOK,
 				responseCode: tt.fields.responseCode,
 			}
-			if exit := c.handleResponse(tt.resp); exit != nil {
-				if exit, ok := exit.(*plugin.Exit); ok {
-					if exit.Status != tt.wantStatus {
-						t.Errorf("CheckHTTP.handleResponse() exit status = %v, wantStatus %v", exit.Status, tt.wantStatus)
-					}
-				} else {
-					t.Error("CheckHTTP.handleResponse() exit could not be asserted")
-				}
-			} else {
-				t.Error("CheckHTTP.handleResponse() exit was nil")
-			}
+			exit := c.handleResponse(tt.resp)
+			verifyExitCode(t, exit, tt.wantStatus)
 		})
 	}
 }
@@ -159,6 +168,74 @@ func TestInitiateRequest(t *testing.T) {
 				t.Errorf("CheckHTTP.initiateRequest() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
+		})
+	}
+}
+
+func TestVerifyBody(t *testing.T) {
+	type fields struct {
+		missingPattern string
+		pattern        string
+	}
+	tests := []struct {
+		name       string
+		fields     fields
+		resp       *http.Response
+		wantStatus int
+	}{
+		{
+			name: "Required pattern is present",
+			fields: fields{
+				pattern: "foo",
+			},
+			resp: &http.Response{
+				Body:       ioutil.NopCloser(bytes.NewReader([]byte("foobar"))),
+				StatusCode: http.StatusOK,
+			},
+			wantStatus: plugin.OK,
+		},
+		{
+			name: "Required pattern is missing",
+			fields: fields{
+				pattern: "qux",
+			},
+			resp: &http.Response{
+				Body:       ioutil.NopCloser(bytes.NewReader([]byte("foobar"))),
+				StatusCode: http.StatusOK,
+			},
+			wantStatus: plugin.Critical,
+		},
+		{
+			name: "Disallowed pattern is present",
+			fields: fields{
+				missingPattern: "foo",
+			},
+			resp: &http.Response{
+				Body:       ioutil.NopCloser(bytes.NewReader([]byte("foobar"))),
+				StatusCode: http.StatusOK,
+			},
+			wantStatus: plugin.Critical,
+		},
+		{
+			name: "Disallowed pattern is missing",
+			fields: fields{
+				missingPattern: "qux",
+			},
+			resp: &http.Response{
+				Body:       ioutil.NopCloser(bytes.NewReader([]byte("foobar"))),
+				StatusCode: http.StatusOK,
+			},
+			wantStatus: plugin.OK,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &CheckHTTP{
+				missingPattern: tt.fields.missingPattern,
+				pattern:        tt.fields.pattern,
+			}
+			exit := c.verifyBody(tt.resp)
+			verifyExitCode(t, exit, tt.wantStatus)
 		})
 	}
 }
