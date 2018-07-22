@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/palourde/gunsen/plugin"
+	"github.com/sensu-go-plugins/gunsen/plugin"
 )
 
 func TestHandleResponse(t *testing.T) {

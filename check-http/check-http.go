@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/palourde/gunsen/plugin"
+	"github.com/sensu-go-plugins/gunsen/plugin"
 )
 
-// CheckHTTP ...
+// CheckHTTP represents
 type CheckHTTP struct {
 	cmd plugin.Command
 
@@ -33,12 +33,12 @@ func main() {
 	plugin.Execute(c)
 }
 
-// Command ...
+// Command returns the plugin command
 func (c *CheckHTTP) Command() plugin.Command {
 	return c.cmd
 }
 
-// Run ...
+// Run executes the plugin
 func (c *CheckHTTP) Run() error {
 	// Validate the provided configuration
 	if c.url == "" {
