@@ -44,7 +44,7 @@ func (c *CheckHTTP) Command() plugin.Command {
 func (c *CheckHTTP) Run() error {
 	// Validate the provided configuration
 	if c.url == "" {
-		return &plugin.Exit{Msg: "No URL specified", Status: plugin.Unknown}
+		return &plugin.Exit{Msg: "no URL specified", Status: plugin.Unknown}
 	}
 
 	client := c.prepareClient()
@@ -65,7 +65,7 @@ func (c *CheckHTTP) handleResponse(resp *http.Response) error {
 			return &plugin.Exit{Msg: status, Status: plugin.OK}
 		}
 		return &plugin.Exit{
-			Msg:    fmt.Sprintf("expected %s, got %s", statusLine(c.responseCode), statusLine(resp.StatusCode)),
+			Msg:    fmt.Sprintf("expected HTTP status %s, got %s", statusLine(c.responseCode), statusLine(resp.StatusCode)),
 			Status: plugin.Critical,
 		}
 	}
